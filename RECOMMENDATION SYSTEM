@@ -1,0 +1,81 @@
+pip install pandas scikit-learn flask
+from flask import Flask, request, jsonify
+import pandas as pd
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+
+app = Flask(__name__)
+
+# Simulate a User-Item (Movie-Rating) Matrix
+data = {
+    'Movie1': [5, 4, 3, 2, 1],
+    'Movie2': [4, 5, 3, 2, 1],
+    'Movie3': [3, 4, 5, 1, 2],
+    'Movie4': [2, 3, 1, 5, 4],
+    'Movie5': [1, 2, 4, 3, 5]
+}
+df = pd.DataFrame(data, index=['User1', 'User2', 'User3', 'User4', 'User5'])
+
+# Function to calculate cosine similarity
+def calculate_cosine_similarity(df):
+    return cosine_similarity(df)
+
+# Function to recommend movies based on user similarity
+def recommend_movies(user, df, cosine_sim_df):
+    similar_users = cosine_sim_df[user].sort_values(ascending=False).drop(user)
+    top_similar_users = similar_users.head(2)
+
+    recommended_movies = set()
+
+    for similar_user in top_similar_users.index:
+        for movie, rating in df.loc[similar_user].items():
+            if pd.isna(df.loc[user, movie]) and rating >= 4:
+                recommended_movies.add(movie)
+
+    return list(recommended_movies)
+
+# Function to update user ratings in real-time
+def update_ratings(user, movie, rating):
+    global df
+    df.at[user, movie] = rating
+
+# Route to get recommendations for a user
+@app.route('/recommend', methods=['GET'])
+def get_recommendations():
+    user = request.args.get('user')
+
+    if user not in df.index:
+        return jsonify({"error": "User not found"}), 400
+
+    # Recalculate cosine similarity after each request
+    cosine_sim = calculate_cosine_similarity(df)
+    cosine_sim_df = pd.DataFrame(cosine_sim, index=df.index, columns=df.index)
+
+    recommendations = recommend_movies(user, df, cosine_sim_df)
+    return jsonify({"recommended_movies": recommendations})
+
+# Route to add user rating (real-time data input)
+@app.route('/rate', methods=['POST'])
+def rate_movie():
+    data = request.get_json()
+    user = data.get('user')
+    movie = data.get('movie')
+    rating = data.get('rating')
+
+    if user not in df.index:
+        return jsonify({"error": "User not found"}), 400
+    if movie not in df.columns:
+        return jsonify({"error": "Movie not found"}), 400
+
+    update_ratings(user, movie, rating)
+    return jsonify({"message": f"Rating for {movie} by {user} updated to {rating}."})
+
+if __name__ == '__main__':
+    app.run(debug=True)
+{
+    "user": "User1",
+    "movie": "Movie1",
+    "rating": 5
+}
+python app.py
+curl -X POST http://127.0.0.1:5000/rate -H "Content-Type: application/json" -d '{"user": "User1", "movie": "Movie2", "rating": 4}'
